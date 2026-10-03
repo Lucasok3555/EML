@@ -1,0 +1,906 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>NostrCoins - Moedas e Carteira sobre Nostr</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/nostr-tools@2.7.2/lib/nostr.bundle.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+
+    <style>
+        body { font-family: 'Inter', sans-serif; background-color: #0f172a; color: #f8fafc; }
+        .tab-content { display: none; }
+        .tab-content.active { display: block; }
+
+        @keyframes pulse-glow {
+            0%, 100% { box-shadow: 0 0 15px rgba(34, 197, 94, 0.2); }
+            50% { box-shadow: 0 0 25px rgba(34, 197, 94, 0.6); }
+        }
+        .mining-active { animation: pulse-glow 2s infinite; }
+
+        ::-webkit-scrollbar { width: 6px; }
+        ::-webkit-scrollbar-track { background: #1e293b; }
+        ::-webkit-scrollbar-thumb { background: #475569; border-radius: 4px; }
+
+        .inp { width: 100%; background: #0f172a; border: 1px solid #334155; border-radius: 0.5rem; padding: 0.5rem 0.75rem; font-size: 0.875rem; color: #fff; outline: none; }
+        .inp:focus { border-color: #3b82f6; }
+        .btn { font-weight: 500; font-size: 0.875rem; padding: 0.5rem 0.75rem; border-radius: 0.5rem; transition: background .15s; display: inline-flex; align-items: center; justify-content: center; gap: 0.5rem; }
+        .btn-blue { background: #2563eb; color: #fff; } .btn-blue:hover { background: #1d4ed8; }
+        .btn-green { background: #059669; color: #fff; } .btn-green:hover { background: #047857; }
+        .btn-red { background: #dc2626; color: #fff; } .btn-red:hover { background: #b91c1c; }
+        .btn-slate { background: #334155; color: #e2e8f0; } .btn-slate:hover { background: #475569; }
+        .card { background: rgba(15,23,42,.5); border: 1px solid #334155; border-radius: 0.75rem; padding: 1rem; }
+        .sub-active { background: #059669; color: #fff; }
+    </style>
+</head>
+<body class="min-h-screen flex items-center justify-center p-4">
+
+    <div class="w-full max-w-md bg-slate-800 rounded-2xl shadow-2xl overflow-hidden border border-slate-700">
+
+        <!-- Header -->
+        <div class="bg-slate-900 p-5 border-b border-slate-700 text-center relative">
+            <div id="connection-status" class="absolute top-4 right-4 flex items-center text-xs text-yellow-500">
+                <i data-lucide="wifi" class="w-3 h-3 mr-1"></i> Conectando...
+            </div>
+            <h1 class="text-2xl font-bold text-blue-400 flex items-center justify-center gap-2">
+                <i data-lucide="coins"></i> NostrCoins
+            </h1>
+            <p class="text-slate-400 text-xs mt-1">Moedas sobre o protocolo Nostr</p>
+            <p class="text-slate-300 text-sm mt-3 flex items-center justify-center gap-1">
+                <i data-lucide="user" class="w-3 h-3 text-blue-400"></i>
+                <span id="header-profile">-</span>
+            </p>
+        </div>
+
+        <!-- Abas -->
+        <div class="flex border-b border-slate-700 bg-slate-800/50">
+            <button onclick="switchTab('coins')" id="tab-btn-coins" class="flex-1 py-3 text-xs sm:text-sm font-medium border-b-2 border-blue-500 text-blue-400 transition-colors">Moedas</button>
+            <button onclick="switchTab('wallet')" id="tab-btn-wallet" class="flex-1 py-3 text-xs sm:text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors">Carteiras</button>
+            <button onclick="switchTab('mine')" id="tab-btn-mine" class="flex-1 py-3 text-xs sm:text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors">Minerar</button>
+            <button onclick="switchTab('settings')" id="tab-btn-settings" class="flex-1 py-3 text-xs sm:text-sm font-medium border-b-2 border-transparent text-slate-400 hover:text-slate-200 transition-colors">Config.</button>
+        </div>
+
+        <!-- Conteúdo -->
+        <div class="p-5 h-[520px] overflow-y-auto relative">
+
+            <div id="toast" class="fixed top-4 left-1/2 transform -translate-x-1/2 bg-blue-600 text-white text-xs px-3 py-1 rounded-full shadow-lg opacity-0 transition-opacity duration-300 pointer-events-none z-50">Mensagem</div>
+
+            <!-- ABA: MOEDAS (tela inicial) -->
+            <div id="tab-coins" class="tab-content active space-y-5">
+                <div class="card">
+                    <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                        <i data-lucide="plus-circle" class="w-4 h-4 text-blue-400"></i> Criar moeda
+                    </h3>
+                    <div class="space-y-3">
+                        <input type="text" id="coin-name" maxlength="32" placeholder="Nome da moeda (ex: Moeda do Lucas)" class="inp">
+                        <input type="text" id="coin-symbol" maxlength="6" placeholder="Símbolo (ex: LUC)" class="inp uppercase">
+                        <button onclick="createCoin()" class="btn btn-blue w-full"><i data-lucide="sparkles" class="w-4 h-4"></i> Criar moeda</button>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                        <i data-lucide="list" class="w-4 h-4 text-blue-400"></i> Moedas da rede
+                    </h3>
+                    <div id="coin-list" class="space-y-3"></div>
+                </div>
+            </div>
+
+            <!-- ABA: CARTEIRAS -->
+            <div id="tab-wallet" class="tab-content space-y-5">
+                <div class="card">
+                    <label class="block text-xs font-medium text-slate-400 mb-1">Seu endereço (chave pública Nostr)</label>
+                    <div class="flex items-center gap-2">
+                        <code id="my-npub" class="flex-1 bg-slate-900 p-2 rounded text-xs text-green-400 break-all select-all">...</code>
+                        <button onclick="copyText(activeProfile().pub ? NostrTools.nip19.npubEncode(activeProfile().pub) : '')" class="p-2 bg-slate-700 hover:bg-slate-600 rounded transition-colors text-white" title="Copiar npub">
+                            <i data-lucide="copy" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                    <div class="flex items-center gap-2 mt-2">
+                        <code id="my-hex" class="flex-1 bg-slate-900 p-2 rounded text-[10px] text-slate-400 break-all select-all">...</code>
+                        <button onclick="copyText(activeProfile().pub)" class="p-2 bg-slate-700 hover:bg-slate-600 rounded transition-colors text-white" title="Copiar hex">
+                            <i data-lucide="copy" class="w-4 h-4"></i>
+                        </button>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                        <i data-lucide="wallet" class="w-4 h-4 text-blue-400"></i> Minhas moedas
+                    </h3>
+                    <div id="wallet-list" class="space-y-2"></div>
+                </div>
+
+                <div class="card">
+                    <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                        <i data-lucide="send" class="w-4 h-4 text-blue-400"></i> Enviar
+                    </h3>
+                    <div class="space-y-3">
+                        <select id="send-coin" class="inp"></select>
+                        <input type="text" id="send-address" placeholder="Endereço do destino (npub... ou hex)" class="inp">
+                        <input type="number" id="send-amount" placeholder="Valor 0.00" min="0.01" step="0.01" class="inp">
+                        <button onclick="sendFunds()" id="btn-send" class="btn btn-blue w-full"><i data-lucide="arrow-right" class="w-4 h-4"></i> Enviar agora</button>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                        <i data-lucide="activity" class="w-4 h-4 text-blue-400"></i> Transações
+                    </h3>
+                    <div id="transaction-list" class="space-y-2"></div>
+                </div>
+            </div>
+
+            <!-- ABA: MINERAR -->
+            <div id="tab-mine" class="tab-content space-y-4">
+                <div>
+                    <label class="block text-xs font-medium text-slate-400 mb-1">Moeda a minerar</label>
+                    <select id="mine-coin" class="inp" onchange="onMineCoinChange()"></select>
+                </div>
+
+                <div class="flex gap-2 text-xs">
+                    <button id="sub-math" onclick="setMode('math')" class="btn btn-slate flex-1">Contas</button>
+                    <button id="sub-cor" onclick="setMode('cor')" class="btn btn-slate flex-1">Cor</button>
+                    <button id="sub-pow" onclick="setMode('pow')" class="btn btn-slate flex-1">Processamento</button>
+                </div>
+
+                <p id="mine-reward" class="text-xs text-slate-400 text-center"></p>
+
+                <!-- Contas -->
+                <div id="mode-math" class="card space-y-3 text-center">
+                    <p class="text-xs text-slate-400">Resolva a conta e aceite o resultado</p>
+                    <p id="math-question" class="text-3xl font-bold text-white">-</p>
+                    <input type="number" id="math-answer" placeholder="Resultado" class="inp text-center" onkeydown="if(event.key==='Enter')submitChallenge()">
+                    <button onclick="submitChallenge()" class="btn btn-green w-full"><i data-lucide="check" class="w-4 h-4"></i> Aceitar resultado</button>
+                </div>
+
+                <!-- Cor -->
+                <div id="mode-cor" class="card space-y-3 text-center hidden">
+                    <p class="text-xs text-slate-400">A primeira letra do nome desta cor completa a palavra</p>
+                    <div id="cor-swatch" class="w-20 h-20 rounded-full mx-auto border-4 border-slate-600"></div>
+                    <p id="cor-word" class="text-4xl font-extrabold tracking-widest text-white">-</p>
+                    <input type="text" id="cor-answer" maxlength="1" placeholder="Letra" class="inp text-center uppercase" onkeydown="if(event.key==='Enter')submitChallenge()">
+                    <button onclick="submitChallenge()" class="btn btn-green w-full"><i data-lucide="check" class="w-4 h-4"></i> Aceitar resultado</button>
+                </div>
+
+                <!-- Processamento -->
+                <div id="mode-pow" class="hidden flex flex-col items-center">
+                    <div id="mining-ring" class="w-40 h-40 rounded-full border-4 border-slate-700 flex flex-col items-center justify-center mb-4 transition-all duration-300">
+                        <i id="mining-icon" data-lucide="cpu" class="w-10 h-10 text-slate-500 mb-2"></i>
+                        <p id="mining-status" class="text-sm font-medium text-slate-400">Inativo</p>
+                        <p id="mining-hashrate" class="text-xs text-slate-600 mt-1">0 H/s</p>
+                    </div>
+                    <button onclick="togglePow()" id="btn-mine" class="btn btn-green w-full max-w-[220px] py-3"><i data-lucide="play" class="w-4 h-4"></i> Iniciar mineração</button>
+                </div>
+            </div>
+
+            <!-- ABA: CONFIGURAÇÕES -->
+            <div id="tab-settings" class="tab-content space-y-6">
+                <div>
+                    <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                        <i data-lucide="users" class="w-4 h-4 text-blue-400"></i> Perfis
+                    </h3>
+                    <div id="profile-list" class="space-y-2 mb-3"></div>
+
+                    <div class="card space-y-2">
+                        <input type="text" id="new-profile-name" maxlength="24" placeholder="Nome do novo perfil" class="inp">
+                        <button onclick="createProfile()" class="btn btn-blue w-full"><i data-lucide="user-plus" class="w-4 h-4"></i> Criar perfil</button>
+                    </div>
+
+                    <div class="card space-y-2 mt-3">
+                        <input type="text" id="login-name" maxlength="24" placeholder="Nome do perfil (opcional)" class="inp">
+                        <input type="password" id="login-key" placeholder="Chave privada (nsec... ou hex)" class="inp">
+                        <button onclick="loginWithKey()" class="btn btn-green w-full"><i data-lucide="log-in" class="w-4 h-4"></i> Entrar com chave privada</button>
+                    </div>
+                </div>
+
+                <div>
+                    <h3 class="text-sm font-semibold text-white mb-3 flex items-center gap-2">
+                        <i data-lucide="server" class="w-4 h-4 text-blue-400"></i> Servidores
+                    </h3>
+                    <div id="relay-list" class="space-y-2 mb-3"></div>
+                    <div class="card space-y-2">
+                        <input type="text" id="new-relay" placeholder="wss://servidor.exemplo.com" class="inp">
+                        <button onclick="addRelay()" class="btn btn-blue w-full"><i data-lucide="plus" class="w-4 h-4"></i> Adicionar servidor</button>
+                    </div>
+                </div>
+            </div>
+
+        </div>
+    </div>
+
+    <script>
+        lucide.createIcons();
+
+        // ===== CONSTANTES =====
+        const KIND_COIN = 7701;      // criação de moeda
+        const KIND_TX   = 7702;      // transferência / mineração
+        const APP_TAG   = 'nostrcoins';
+        const REWARD    = { math: 100, cor: 100, pow: 500 };   // em centésimos (1.00 / 1.00 / 5.00)
+        const POW_ZEROS = '00000';                              // 5 zeros hex = 20 bits
+        const DEFAULT_RELAYS = ['wss://nos.lol', 'wss://relay.primal.net', 'wss://relay.damus.io'];
+
+        const LS_PROFILES = 'nostrcoins_profiles';
+        const LS_ACTIVE   = 'nostrcoins_active';
+        const LS_RELAYS   = 'nostrcoins_relays';
+        const LS_EVENTS   = 'nostrcoins_events';
+
+        // ===== UTILITÁRIOS =====
+        const esc = s => String(s).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
+        const hexToBytes = h => Uint8Array.from(h.match(/.{2}/g).map(b => parseInt(b, 16)));
+        const bytesToHex = b => Array.from(b).map(x => x.toString(16).padStart(2, '0')).join('');
+        const fmt = c => (c / 100).toFixed(2);
+        const shortKey = k => k.slice(0, 8) + '…' + k.slice(-6);
+        const randSeed = () => bytesToHex(crypto.getRandomValues(new Uint8Array(4)));
+        const lsGet = (k, d) => { try { const v = JSON.parse(localStorage.getItem(k)); return v ?? d; } catch (e) { return d; } };
+        const lsSet = (k, v) => { try { localStorage.setItem(k, JSON.stringify(v)); } catch (e) {} };
+
+        // SHA-256 síncrono (para o desafio de processamento)
+        const SHA_K = new Uint32Array([
+            0x428a2f98,0x71374491,0xb5c0fbcf,0xe9b5dba5,0x3956c25b,0x59f111f1,0x923f82a4,0xab1c5ed5,
+            0xd807aa98,0x12835b01,0x243185be,0x550c7dc3,0x72be5d74,0x80deb1fe,0x9bdc06a7,0xc19bf174,
+            0xe49b69c1,0xefbe4786,0x0fc19dc6,0x240ca1cc,0x2de92c6f,0x4a7484aa,0x5cb0a9dc,0x76f988da,
+            0x983e5152,0xa831c66d,0xb00327c8,0xbf597fc7,0xc6e00bf3,0xd5a79147,0x06ca6351,0x14292967,
+            0x27b70a85,0x2e1b2138,0x4d2c6dfc,0x53380d13,0x650a7354,0x766a0abb,0x81c2c92e,0x92722c85,
+            0xa2bfe8a1,0xa81a664b,0xc24b8b70,0xc76c51a3,0xd192e819,0xd6990624,0xf40e3585,0x106aa070,
+            0x19a4c116,0x1e376c08,0x2748774c,0x34b0bcb5,0x391c0cb3,0x4ed8aa4a,0x5b9cca4f,0x682e6ff3,
+            0x748f82ee,0x78a5636f,0x84c87814,0x8cc70208,0x90befffa,0xa4506ceb,0xbef9a3f7,0xc67178f2
+        ]);
+        const SHA_W = new Uint32Array(64);
+        const ENC = new TextEncoder();
+        function sha256hex(str) {
+            const bytes = ENC.encode(str), l = bytes.length;
+            const nb = (l + 9 + 63) >> 6;
+            const buf = new Uint8Array(nb * 64);
+            buf.set(bytes); buf[l] = 0x80;
+            const dv = new DataView(buf.buffer);
+            dv.setUint32(buf.length - 4, (l * 8) >>> 0);
+            dv.setUint32(buf.length - 8, Math.floor(l * 8 / 4294967296));
+            let h0=0x6a09e667,h1=0xbb67ae85,h2=0x3c6ef372,h3=0xa54ff53a,h4=0x510e527f,h5=0x9b05688c,h6=0x1f83d9ab,h7=0x5be0cd19;
+            const w = SHA_W;
+            for (let i = 0; i < nb; i++) {
+                for (let t = 0; t < 16; t++) w[t] = dv.getUint32(i * 64 + t * 4);
+                for (let t = 16; t < 64; t++) {
+                    const a = w[t-15], b = w[t-2];
+                    const s0 = ((a>>>7)|(a<<25)) ^ ((a>>>18)|(a<<14)) ^ (a>>>3);
+                    const s1 = ((b>>>17)|(b<<15)) ^ ((b>>>19)|(b<<13)) ^ (b>>>10);
+                    w[t] = (w[t-16] + s0 + w[t-7] + s1) | 0;
+                }
+                let a=h0,b=h1,c=h2,d=h3,e=h4,f=h5,g=h6,h=h7;
+                for (let t = 0; t < 64; t++) {
+                    const S1 = ((e>>>6)|(e<<26)) ^ ((e>>>11)|(e<<21)) ^ ((e>>>25)|(e<<7));
+                    const ch = (e & f) ^ (~e & g);
+                    const t1 = (h + S1 + ch + SHA_K[t] + w[t]) | 0;
+                    const S0 = ((a>>>2)|(a<<30)) ^ ((a>>>13)|(a<<19)) ^ ((a>>>22)|(a<<10));
+                    const mj = (a & b) ^ (a & c) ^ (b & c);
+                    const t2 = (S0 + mj) | 0;
+                    h = g; g = f; f = e; e = (d + t1) | 0; d = c; c = b; b = a; a = (t1 + t2) | 0;
+                }
+                h0=(h0+a)|0; h1=(h1+b)|0; h2=(h2+c)|0; h3=(h3+d)|0; h4=(h4+e)|0; h5=(h5+f)|0; h6=(h6+g)|0; h7=(h7+h)|0;
+            }
+            return [h0,h1,h2,h3,h4,h5,h6,h7].map(x => (x >>> 0).toString(16).padStart(8, '0')).join('');
+        }
+
+        // ===== DESAFIOS (determinísticos a partir da semente, para qualquer um verificar) =====
+        const COLORS = [
+            { n: 'Vermelho', hex: '#ef4444', l: 'V', words: ['ELA', 'ACA', 'ASO'] },   // palavras sem a 1ª letra: VELA, VACA, VASO
+            { n: 'Azul',     hex: '#3b82f6', l: 'A', words: ['NEL', 'RCO', 'VE'] },    // ANEL, ARCO, AVE
+            { n: 'Verde',    hex: '#22c55e', l: 'V', words: ['IDA', 'IDRO', 'ENTO'] }, // VIDA, VIDRO, VENTO
+            { n: 'Amarelo',  hex: '#facc15', l: 'A', words: ['NO', 'SA', 'REIA'] },    // ANO, ASA, AREIA
+            { n: 'Preto',    hex: '#111827', l: 'P', words: ['ATO', 'EIXE', 'ONTE'] }, // PATO, PEIXE, PONTE
+            { n: 'Branco',   hex: '#ffffff', l: 'B', words: ['OLA', 'OLO', 'ALA'] },   // BOLA, BOLO, BALA
+            { n: 'Laranja',  hex: '#f97316', l: 'L', words: ['UA', 'AGO', 'UVA'] },    // LUA, LAGO, LUVA
+            { n: 'Roxo',     hex: '#a855f7', l: 'R', words: ['ATO', 'ODA', 'EDE'] },   // RATO, RODA, REDE
+            { n: 'Rosa',     hex: '#ec4899', l: 'R', words: ['IO', 'ODA', 'ATO'] },    // RIO, RODA, RATO
+            { n: 'Marrom',   hex: '#92400e', l: 'M', words: ['ESA', 'ALA', 'APA'] },   // MESA, MALA, MAPA
+            { n: 'Cinza',    hex: '#94a3b8', l: 'C', words: ['ASA', 'AMA', 'ARRO'] }   // CASA, CAMA, CARRO
+        ];
+
+        function makeRng(seedStr) {
+            let a = parseInt(sha256hex(seedStr).slice(0, 8), 16) >>> 0;
+            return () => {
+                a = (a + 0x6D2B79F5) >>> 0;
+                let t = a;
+                t = Math.imul(t ^ (t >>> 15), t | 1);
+                t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+                return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+            };
+        }
+        const rint = (r, min, max) => min + Math.floor(r() * (max - min + 1));
+
+        function genChallenge(ch, seed) {
+            const r = makeRng(ch + ':' + seed);
+            if (ch === 'math') {
+                const a = rint(r, 3, 60), b = rint(r, 2, 20), c = rint(r, 2, 12);
+                switch (rint(r, 0, 3)) {
+                    case 0: return { q: `${a} + ${b} × ${c}`,   ans: String(a + b * c) };
+                    case 1: return { q: `${a} × ${b} − ${c}`,   ans: String(a * b - c) };
+                    case 2: return { q: `(${a} + ${b}) × ${c}`, ans: String((a + b) * c) };
+                    default: return { q: `${a} × ${b} + ${c}`,  ans: String(a * b + c) };
+                }
+            }
+            if (ch === 'cor') {
+                const col = COLORS[rint(r, 0, COLORS.length - 1)];
+                const rest = col.words[rint(r, 0, col.words.length - 1)];
+                return { hex: col.hex, word: '_' + rest, ans: col.l };
+            }
+            return null;
+        }
+
+        function powHash(coinId, pub, seed, nonce) {
+            return sha256hex(`${coinId.slice(0, 16)}:${pub.slice(0, 16)}:${seed}:${nonce}`);
+        }
+
+        function verifyMint(c, coinId, pub) {
+            if (!REWARD[c.ch] || !/^[0-9a-f]{8}$/.test(String(c.seed))) return false;
+            if (c.ch === 'pow') {
+                if (!/^\d{1,12}$/.test(String(c.nonce))) return false;
+                return powHash(coinId, pub, c.seed, c.nonce).startsWith(POW_ZEROS);
+            }
+            const g = genChallenge(c.ch, c.seed);
+            return g && String(c.ans).toUpperCase() === g.ans;
+        }
+
+        // ===== ESTADO =====
+        let profiles = lsGet(LS_PROFILES, []);        // [{id, name, sk(hex), pub(hex)}]
+        let activeId = lsGet(LS_ACTIVE, null);
+        let relays   = lsGet(LS_RELAYS, DEFAULT_RELAYS.slice());
+        const events = new Map();                      // id -> evento validado
+        let ledger   = { coins: new Map(), bal: new Map(), supply: new Map(), history: [] };
+        let sockets  = new Map();                      // url -> {ws, status}
+        let mode = 'math';
+        let challenge = null;                          // { seed, data }
+        let powRunning = false, powTimer = null, powState = null;
+        let recomputeTimer = null;
+
+        function activeProfile() { return profiles.find(p => p.id === activeId) || profiles[0] || { pub: '', sk: '', name: '' }; }
+        function saveProfiles() { lsSet(LS_PROFILES, profiles); lsSet(LS_ACTIVE, activeId); }
+
+        // ===== INICIALIZAÇÃO =====
+        function init() {
+            // restaurar cache de eventos
+            for (const ev of lsGet(LS_EVENTS, [])) {
+                if (NostrTools.verifyEvent(ev)) events.set(ev.id, ev);
+            }
+            if (profiles.length === 0) {
+                addProfile('Perfil 1', NostrTools.generateSecretKey());
+            } else if (!profiles.find(p => p.id === activeId)) {
+                activeId = profiles[0].id; saveProfiles();
+            }
+            recompute();
+            connectAll();
+            setMode('math');
+            renderAll();
+        }
+
+        // ===== PERFIS =====
+        function addProfile(name, skBytes) {
+            const sk = bytesToHex(skBytes);
+            const pub = NostrTools.getPublicKey(skBytes);
+            const existing = profiles.find(p => p.pub === pub);
+            if (existing) { activeId = existing.id; saveProfiles(); return existing; }
+            const p = { id: 'p' + Date.now() + Math.floor(Math.random() * 1000), name: name || ('Perfil ' + (profiles.length + 1)), sk, pub };
+            profiles.push(p);
+            activeId = p.id;
+            saveProfiles();
+            return p;
+        }
+
+        function createProfile() {
+            const name = document.getElementById('new-profile-name').value.trim();
+            addProfile(name, NostrTools.generateSecretKey());
+            document.getElementById('new-profile-name').value = '';
+            afterProfileChange();
+            showToast('Perfil criado!');
+        }
+
+        function loginWithKey() {
+            const raw = document.getElementById('login-key').value.trim();
+            const name = document.getElementById('login-name').value.trim();
+            let skBytes = null;
+            try {
+                if (raw.startsWith('nsec1')) {
+                    const d = NostrTools.nip19.decode(raw);
+                    if (d.type === 'nsec') skBytes = d.data;
+                } else if (/^[0-9a-fA-F]{64}$/.test(raw)) {
+                    skBytes = hexToBytes(raw.toLowerCase());
+                }
+            } catch (e) {}
+            if (!skBytes) return showToast('Chave privada inválida.', true);
+            addProfile(name, skBytes);
+            document.getElementById('login-key').value = '';
+            document.getElementById('login-name').value = '';
+            afterProfileChange();
+            showToast('Entrou no perfil!');
+        }
+
+        function selectProfile(id) { activeId = id; saveProfiles(); afterProfileChange(); }
+
+        function editProfile(id) {
+            const p = profiles.find(x => x.id === id); if (!p) return;
+            const n = prompt('Novo nome do perfil:', p.name);
+            if (n && n.trim()) { p.name = n.trim().slice(0, 24); saveProfiles(); renderAll(); }
+        }
+
+        function deleteProfile(id) {
+            if (profiles.length <= 1) return showToast('Mantenha ao menos um perfil.', true);
+            const p = profiles.find(x => x.id === id); if (!p) return;
+            if (!confirm(`Apagar o perfil "${p.name}"? Sem backup da chave privada, as moedas dele serão perdidas.`)) return;
+            profiles = profiles.filter(x => x.id !== id);
+            if (activeId === id) activeId = profiles[0].id;
+            saveProfiles(); afterProfileChange();
+        }
+
+        function showPrivateKey(id) {
+            const p = profiles.find(x => x.id === id); if (!p) return;
+            const nsec = NostrTools.nip19.nsecEncode(hexToBytes(p.sk));
+            if (confirm('Copiar a chave privada (nsec) deste perfil para a área de transferência? Nunca compartilhe com ninguém.')) copyText(nsec);
+        }
+
+        function afterProfileChange() {
+            stopPow();
+            renderAll();
+        }
+
+        // ===== SERVIDORES (RELAYS) =====
+        function normalizeRelay(u) {
+            u = u.trim();
+            if (!u) return null;
+            if (!/^wss?:\/\//i.test(u)) u = 'wss://' + u;
+            try { const x = new URL(u); return x.protocol + '//' + x.host + (x.pathname === '/' ? '' : x.pathname); } catch (e) { return null; }
+        }
+
+        function addRelay() {
+            const u = normalizeRelay(document.getElementById('new-relay').value);
+            if (!u) return showToast('Endereço inválido.', true);
+            if (relays.includes(u)) return showToast('Servidor já existe.', true);
+            relays.push(u); lsSet(LS_RELAYS, relays);
+            document.getElementById('new-relay').value = '';
+            connectRelay(u); renderAll();
+        }
+
+        function editRelay(i) {
+            const n = prompt('Editar servidor:', relays[i]); if (n === null) return;
+            const u = normalizeRelay(n);
+            if (!u) return showToast('Endereço inválido.', true);
+            const old = relays[i];
+            closeRelay(old);
+            relays[i] = u; lsSet(LS_RELAYS, relays);
+            connectRelay(u); renderAll();
+        }
+
+        function deleteRelay(i) {
+            const u = relays[i];
+            closeRelay(u);
+            relays.splice(i, 1); lsSet(LS_RELAYS, relays);
+            renderAll();
+        }
+
+        function closeRelay(u) {
+            const s = sockets.get(u);
+            if (s) { s.removed = true; try { s.ws.close(); } catch (e) {} sockets.delete(u); }
+        }
+
+        function connectAll() { relays.forEach(connectRelay); }
+
+        function connectRelay(url) {
+            if (sockets.has(url)) return;
+            const s = { ws: null, status: 'connecting', removed: false };
+            sockets.set(url, s);
+            try {
+                s.ws = new WebSocket(url);
+            } catch (e) { s.status = 'error'; updateStatus(); return; }
+            s.ws.onopen = () => {
+                s.status = 'open';
+                s.ws.send(JSON.stringify(['REQ', 'nc', { kinds: [KIND_COIN, KIND_TX], '#t': [APP_TAG], limit: 5000 }]));
+                updateStatus(); renderRelays();
+            };
+            s.ws.onmessage = (m) => {
+                let d; try { d = JSON.parse(m.data); } catch (e) { return; }
+                if (d[0] === 'EVENT' && d[2]) ingest(d[2]);
+            };
+            const onEnd = () => {
+                s.status = 'closed';
+                updateStatus(); renderRelays();
+                if (!s.removed) {
+                    sockets.delete(url);
+                    setTimeout(() => { if (relays.includes(url)) connectRelay(url); }, 6000);
+                }
+            };
+            s.ws.onclose = onEnd;
+            s.ws.onerror = () => { s.status = 'error'; };
+            updateStatus(); renderRelays();
+        }
+
+        function publishEvent(ev) {
+            ingest(ev);
+            const msg = JSON.stringify(['EVENT', ev]);
+            let sent = 0;
+            sockets.forEach(s => { if (s.status === 'open') { try { s.ws.send(msg); sent++; } catch (e) {} } });
+            return sent;
+        }
+
+        function updateStatus() {
+            const total = relays.length;
+            const open = [...sockets.values()].filter(s => s.status === 'open').length;
+            const el = document.getElementById('connection-status');
+            const [cls, ico] = open > 0 ? ['text-green-500', 'check-circle'] : ['text-yellow-500', 'wifi'];
+            el.innerHTML = `<i data-lucide="${ico}" class="w-3 h-3 mr-1"></i> ${open}/${total} servidores`;
+            el.className = `absolute top-4 right-4 flex items-center text-xs ${cls}`;
+            lucide.createIcons();
+        }
+
+        // ===== EVENTOS E LIVRO-RAZÃO =====
+        function ingest(ev) {
+            if (!ev || events.has(ev.id)) return;
+            if (ev.kind !== KIND_COIN && ev.kind !== KIND_TX) return;
+            let ok = false;
+            try { ok = NostrTools.verifyEvent(ev); } catch (e) {}
+            if (!ok) return;
+            events.set(ev.id, ev);
+            clearTimeout(recomputeTimer);
+            recomputeTimer = setTimeout(() => { recompute(); renderAll(); persistEvents(); }, 250);
+        }
+
+        function persistEvents() {
+            const arr = [...events.values()].sort((a, b) => b.created_at - a.created_at).slice(0, 4000);
+            lsSet(LS_EVENTS, arr);
+        }
+
+        function recompute() {
+            const evs = [...events.values()].sort((a, b) => a.created_at - b.created_at || (a.id < b.id ? -1 : 1));
+            const coins = new Map(), symbols = new Set(), bal = new Map(), supply = new Map(), seen = new Set(), history = [];
+            const getBal = (coin, pub) => (bal.get(coin) || new Map()).get(pub) || 0;
+            const setBal = (coin, pub, v) => { if (!bal.has(coin)) bal.set(coin, new Map()); bal.get(coin).set(pub, v); };
+
+            for (const ev of evs) {
+                let c; try { c = JSON.parse(ev.content); } catch (e) { continue; }
+                if (!c || typeof c !== 'object') continue;
+
+                if (ev.kind === KIND_COIN && c.t === 'coin') {
+                    const name = String(c.name || '').trim().slice(0, 32);
+                    const symbol = String(c.symbol || '').toUpperCase();
+                    if (!name || !/^[A-Z0-9]{2,6}$/.test(symbol) || symbols.has(symbol)) continue;
+                    symbols.add(symbol);
+                    coins.set(ev.id, { id: ev.id, name, symbol, creator: ev.pubkey, ts: ev.created_at });
+                    supply.set(ev.id, 0);
+                }
+
+                if (ev.kind === KIND_TX) {
+                    const coin = coins.get(c.coin);
+                    if (!coin) continue;
+                    if (c.t === 'mint') {
+                        const key = `${ev.pubkey}|${c.coin}|${c.seed}`;
+                        if (seen.has(key) || !verifyMint(c, c.coin, ev.pubkey)) continue;
+                        seen.add(key);
+                        const amt = REWARD[c.ch];
+                        setBal(c.coin, ev.pubkey, getBal(c.coin, ev.pubkey) + amt);
+                        supply.set(c.coin, supply.get(c.coin) + amt);
+                        history.push({ id: ev.id, type: 'mine', coin: c.coin, amount: amt, from: null, to: ev.pubkey, ts: ev.created_at });
+                    } else if (c.t === 'transfer') {
+                        const amt = c.a;
+                        if (!Number.isInteger(amt) || amt <= 0 || amt > 1e12) continue;
+                        if (!/^[0-9a-f]{64}$/.test(String(c.to)) || c.to === ev.pubkey) continue;
+                        if (getBal(c.coin, ev.pubkey) < amt) continue;
+                        setBal(c.coin, ev.pubkey, getBal(c.coin, ev.pubkey) - amt);
+                        setBal(c.coin, c.to, getBal(c.coin, c.to) + amt);
+                        history.push({ id: ev.id, type: 'transfer', coin: c.coin, amount: amt, from: ev.pubkey, to: c.to, ts: ev.created_at });
+                    }
+                }
+            }
+            ledger = { coins, bal, supply, history };
+        }
+
+        function balanceOf(coinId, pub) { return (ledger.bal.get(coinId) || new Map()).get(pub) || 0; }
+
+        function signAndPublish(kind, content, extraTags) {
+            const p = activeProfile();
+            const tpl = { kind, created_at: Math.floor(Date.now() / 1000), tags: [['t', APP_TAG], ...extraTags], content: JSON.stringify(content) };
+            const ev = NostrTools.finalizeEvent(tpl, hexToBytes(p.sk));
+            return { ev, sent: publishEvent(ev) };
+        }
+
+        // ===== MOEDAS =====
+        function createCoin() {
+            const name = document.getElementById('coin-name').value.trim();
+            const symbol = document.getElementById('coin-symbol').value.trim().toUpperCase();
+            if (!name) return showToast('Informe o nome da moeda.', true);
+            if (!/^[A-Z0-9]{2,6}$/.test(symbol)) return showToast('Símbolo: 2 a 6 letras/números.', true);
+            for (const c of ledger.coins.values()) if (c.symbol === symbol) return showToast('Esse símbolo já existe.', true);
+            const { sent } = signAndPublish(KIND_COIN, { t: 'coin', name, symbol }, []);
+            document.getElementById('coin-name').value = '';
+            document.getElementById('coin-symbol').value = '';
+            recompute(); renderAll(); persistEvents();
+            showToast(sent ? `Moeda ${symbol} criada!` : 'Criada localmente (sem servidor conectado).', !sent);
+        }
+
+        function mineCoin(id) {
+            switchTab('mine');
+            document.getElementById('mine-coin').value = id;
+            onMineCoinChange();
+        }
+
+        // ===== CARTEIRA =====
+        function parseAddress(a) {
+            a = a.trim();
+            if (/^[0-9a-fA-F]{64}$/.test(a)) return a.toLowerCase();
+            try { const d = NostrTools.nip19.decode(a); if (d.type === 'npub') return d.data; if (d.type === 'nprofile') return d.data.pubkey; } catch (e) {}
+            return null;
+        }
+
+        function sendFunds() {
+            const coinId = document.getElementById('send-coin').value;
+            const to = parseAddress(document.getElementById('send-address').value);
+            const amount = Math.round(parseFloat(document.getElementById('send-amount').value) * 100);
+            const me = activeProfile().pub;
+            if (!coinId) return showToast('Escolha uma moeda.', true);
+            if (!to) return showToast('Endereço inválido.', true);
+            if (!Number.isInteger(amount) || amount <= 0) return showToast('Valor inválido.', true);
+            if (to === me) return showToast('Destinatário inválido.', true);
+            if (amount > balanceOf(coinId, me)) return showToast('Saldo insuficiente.', true);
+
+            const { sent } = signAndPublish(KIND_TX, { t: 'transfer', coin: coinId, to, a: amount }, [['p', to], ['e', coinId]]);
+            document.getElementById('send-address').value = '';
+            document.getElementById('send-amount').value = '';
+            recompute(); renderAll(); persistEvents();
+            showToast(sent ? `Enviado ${fmt(amount)} ${ledger.coins.get(coinId).symbol}!` : 'Salvo localmente (sem servidor conectado).', !sent);
+        }
+
+        // ===== MINERAÇÃO =====
+        function setMode(m) {
+            if (m !== 'pow') stopPow();
+            mode = m;
+            ['math', 'cor', 'pow'].forEach(x => {
+                document.getElementById('mode-' + x).classList.toggle('hidden', x !== m);
+                document.getElementById('sub-' + x).classList.toggle('sub-active', x === m);
+            });
+            updateRewardText();
+            newChallenge();
+        }
+
+        function updateRewardText() {
+            document.getElementById('mine-reward').textContent = `Recompensa: ${fmt(REWARD[mode])} por desafio resolvido`;
+        }
+
+        function onMineCoinChange() { stopPow(); updateRewardText(); newChallenge(); }
+
+        function newChallenge() {
+            if (mode === 'pow') return;
+            const seed = randSeed();
+            const data = genChallenge(mode, seed);
+            challenge = { seed, data };
+            if (mode === 'math') {
+                document.getElementById('math-question').textContent = data.q + ' = ?';
+                document.getElementById('math-answer').value = '';
+            } else {
+                document.getElementById('cor-swatch').style.background = data.hex;
+                document.getElementById('cor-word').textContent = data.word;
+                document.getElementById('cor-answer').value = '';
+            }
+        }
+
+        function submitChallenge() {
+            const coinId = document.getElementById('mine-coin').value;
+            if (!coinId) return showToast('Crie ou escolha uma moeda primeiro.', true);
+            if (!challenge) return;
+            const input = document.getElementById(mode === 'math' ? 'math-answer' : 'cor-answer').value.trim().toUpperCase();
+            if (!input) return;
+            if (input !== challenge.data.ans) {
+                showToast('Resposta incorreta. Novo desafio!', true);
+                return newChallenge();
+            }
+            const content = { t: 'mint', coin: coinId, ch: mode, seed: challenge.seed, ans: input };
+            const { sent } = signAndPublish(KIND_TX, content, [['e', coinId]]);
+            recompute(); renderAll(); persistEvents();
+            showToast(`+${fmt(REWARD[mode])} ${ledger.coins.get(coinId).symbol}` + (sent ? '' : ' (local)'));
+            newChallenge();
+        }
+
+        function togglePow() { powRunning ? stopPow() : startPow(); }
+
+        function startPow() {
+            const coinId = document.getElementById('mine-coin').value;
+            if (!coinId) return showToast('Crie ou escolha uma moeda primeiro.', true);
+            powRunning = true;
+            powState = { coinId, pub: activeProfile().pub, seed: randSeed(), nonce: 0, t0: performance.now(), count: 0 };
+            setPowUI(true);
+            powTick();
+        }
+
+        function powTick() {
+            if (!powRunning) return;
+            const s = powState;
+            const end = performance.now() + 40;           // ~40ms por fatia, para não travar a tela
+            while (performance.now() < end) {
+                for (let i = 0; i < 200; i++) {
+                    s.nonce++; s.count++;
+                    if (powHash(s.coinId, s.pub, s.seed, s.nonce).startsWith(POW_ZEROS)) {
+                        const content = { t: 'mint', coin: s.coinId, ch: 'pow', seed: s.seed, nonce: String(s.nonce) };
+                        const { sent } = signAndPublish(KIND_TX, content, [['e', s.coinId]]);
+                        recompute(); renderAll(); persistEvents();
+                        showToast(`+${fmt(REWARD.pow)} ${ledger.coins.get(s.coinId).symbol}` + (sent ? '' : ' (local)'));
+                        s.seed = randSeed(); s.nonce = 0;
+                    }
+                }
+            }
+            const dt = (performance.now() - s.t0) / 1000;
+            if (dt >= 1) {
+                document.getElementById('mining-hashrate').textContent = Math.round(s.count / dt).toLocaleString('pt-BR') + ' H/s';
+                s.t0 = performance.now(); s.count = 0;
+            }
+            powTimer = setTimeout(powTick, 0);
+        }
+
+        function stopPow() {
+            powRunning = false;
+            clearTimeout(powTimer);
+            setPowUI(false);
+        }
+
+        function setPowUI(on) {
+            const btn = document.getElementById('btn-mine');
+            const ring = document.getElementById('mining-ring');
+            const icon = document.getElementById('mining-icon');
+            document.getElementById('mining-status').textContent = on ? 'Minerando...' : 'Inativo';
+            if (!on) document.getElementById('mining-hashrate').textContent = '0 H/s';
+            ring.classList.toggle('mining-active', on);
+            ring.classList.toggle('border-emerald-500', on);
+            icon.classList.toggle('text-emerald-500', on);
+            btn.className = `btn ${on ? 'btn-red' : 'btn-green'} w-full max-w-[220px] py-3`;
+            btn.innerHTML = on ? `<i data-lucide="square" class="w-4 h-4"></i> Parar` : `<i data-lucide="play" class="w-4 h-4"></i> Iniciar mineração`;
+            lucide.createIcons();
+        }
+
+        // ===== RENDERIZAÇÃO =====
+        function renderAll() {
+            const p = activeProfile();
+            document.getElementById('header-profile').textContent = p.name;
+            renderCoins(); renderWallet(); renderMineSelect(); renderProfiles(); renderRelays();
+            lucide.createIcons();
+        }
+
+        function renderCoins() {
+            const el = document.getElementById('coin-list');
+            const list = [...ledger.coins.values()].sort((a, b) => b.ts - a.ts);
+            if (!list.length) { el.innerHTML = '<div class="text-center text-slate-500 text-sm py-6 italic">Nenhuma moeda ainda. Crie a primeira!</div>'; return; }
+            el.innerHTML = list.map(c => {
+                const holders = [...(ledger.bal.get(c.id) || new Map()).values()].filter(v => v > 0).length;
+                return `<div class="card flex items-center justify-between gap-3">
+                    <div class="flex items-center gap-3 min-w-0">
+                        <div class="w-10 h-10 shrink-0 rounded-full bg-blue-600/20 border border-blue-500/40 flex items-center justify-center text-[11px] font-bold text-blue-300">${esc(c.symbol)}</div>
+                        <div class="min-w-0">
+                            <p class="text-sm font-bold text-white truncate">${esc(c.name)}</p>
+                            <p class="text-[10px] text-slate-500 truncate">Criador: ${esc(shortKey(c.creator))}</p>
+                            <p class="text-[10px] text-slate-500">Em circulação: ${fmt(ledger.supply.get(c.id) || 0)} • ${holders} carteira(s)</p>
+                        </div>
+                    </div>
+                    <button onclick="mineCoin('${c.id}')" class="btn btn-slate text-xs shrink-0"><i data-lucide="pickaxe" class="w-3 h-3"></i> Minerar</button>
+                </div>`;
+            }).join('');
+        }
+
+        function renderWallet() {
+            const p = activeProfile();
+            document.getElementById('my-npub').textContent = p.pub ? NostrTools.nip19.npubEncode(p.pub) : '';
+            document.getElementById('my-hex').textContent = p.pub;
+
+            const owned = [...ledger.coins.values()].filter(c => balanceOf(c.id, p.pub) > 0);
+            document.getElementById('wallet-list').innerHTML = owned.length
+                ? owned.map(c => `<div class="card flex items-center justify-between">
+                        <div><p class="text-sm font-bold text-white">${esc(c.name)}</p><p class="text-[10px] text-slate-500">${esc(c.symbol)}</p></div>
+                        <p class="text-lg font-extrabold text-emerald-400">${fmt(balanceOf(c.id, p.pub))} <span class="text-blue-400 text-sm">${esc(c.symbol)}</span></p>
+                    </div>`).join('')
+                : '<div class="text-center text-slate-500 text-sm py-4 italic">Você ainda não tem saldo. Minere uma moeda!</div>';
+
+            const sel = document.getElementById('send-coin');
+            const cur = sel.value;
+            sel.innerHTML = owned.length
+                ? owned.map(c => `<option value="${c.id}">${esc(c.symbol)} — saldo ${fmt(balanceOf(c.id, p.pub))}</option>`).join('')
+                : '<option value="">Sem moedas para enviar</option>';
+            if (cur && owned.find(c => c.id === cur)) sel.value = cur;
+
+            const mine = ledger.history.filter(h => h.from === p.pub || h.to === p.pub).slice(-30).reverse();
+            document.getElementById('transaction-list').innerHTML = mine.length
+                ? mine.map(h => {
+                    const coin = ledger.coins.get(h.coin);
+                    const out = h.from === p.pub;
+                    const color = out ? 'text-red-400' : (h.type === 'mine' ? 'text-emerald-400' : 'text-emerald-400');
+                    const icon = out ? 'arrow-up-right' : (h.type === 'mine' ? 'pickaxe' : 'arrow-down-left');
+                    const label = h.type === 'mine' ? 'minerado' : (out ? 'enviado' : 'recebido');
+                    const other = h.type === 'mine' ? 'Recompensa de mineração' : shortKey(out ? h.to : h.from);
+                    const time = new Date(h.ts * 1000).toLocaleString('pt-BR', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
+                    return `<div class="flex items-center justify-between p-3 bg-slate-900/60 rounded-lg border border-slate-700/30">
+                        <div class="flex items-center gap-3">
+                            <div class="p-2 bg-slate-800 rounded-lg"><i data-lucide="${icon}" class="w-4 h-4 ${color}"></i></div>
+                            <div><p class="text-xs font-bold text-white uppercase">${label}</p><p class="text-[10px] text-slate-500">${esc(other)}</p></div>
+                        </div>
+                        <div class="text-right"><p class="text-sm font-bold ${color}">${out ? '-' : '+'}${fmt(h.amount)} ${esc(coin ? coin.symbol : '?')}</p><p class="text-[10px] text-slate-600">${time}</p></div>
+                    </div>`;
+                }).join('')
+                : '<div class="text-center text-slate-500 text-sm py-4 italic">Nenhuma transação.</div>';
+        }
+
+        function renderMineSelect() {
+            const sel = document.getElementById('mine-coin');
+            const cur = sel.value;
+            const list = [...ledger.coins.values()].sort((a, b) => a.symbol.localeCompare(b.symbol));
+            sel.innerHTML = list.length ? list.map(c => `<option value="${c.id}">${esc(c.symbol)} — ${esc(c.name)}</option>`).join('') : '<option value="">Nenhuma moeda criada</option>';
+            if (cur && ledger.coins.has(cur)) sel.value = cur;
+        }
+
+        function renderProfiles() {
+            document.getElementById('profile-list').innerHTML = profiles.map(p => {
+                const active = p.id === activeId;
+                return `<div class="card ${active ? 'border-blue-500' : ''}">
+                    <div class="flex items-center justify-between gap-2">
+                        <div class="min-w-0">
+                            <p class="text-sm font-bold text-white truncate">${esc(p.name)} ${active ? '<span class="text-[10px] text-blue-400 font-medium">• ativo</span>' : ''}</p>
+                            <p class="text-[10px] text-slate-500 truncate">${esc(shortKey(NostrTools.nip19.npubEncode(p.pub)))}</p>
+                        </div>
+                        <div class="flex gap-1 shrink-0">
+                            ${active ? '' : `<button onclick="selectProfile('${p.id}')" class="btn btn-green !px-2 !py-1 text-xs" title="Entrar"><i data-lucide="log-in" class="w-3 h-3"></i></button>`}
+                            <button onclick="showPrivateKey('${p.id}')" class="btn btn-slate !px-2 !py-1 text-xs" title="Copiar chave privada"><i data-lucide="key" class="w-3 h-3"></i></button>
+                            <button onclick="editProfile('${p.id}')" class="btn btn-slate !px-2 !py-1 text-xs" title="Editar nome"><i data-lucide="pencil" class="w-3 h-3"></i></button>
+                            <button onclick="deleteProfile('${p.id}')" class="btn btn-red !px-2 !py-1 text-xs" title="Apagar"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                        </div>
+                    </div>
+                </div>`;
+            }).join('');
+        }
+
+        function renderRelays() {
+            const el = document.getElementById('relay-list');
+            if (!relays.length) { el.innerHTML = '<div class="text-center text-slate-500 text-sm py-3 italic">Nenhum servidor.</div>'; return; }
+            el.innerHTML = relays.map((u, i) => {
+                const st = sockets.get(u)?.status || 'closed';
+                const dot = st === 'open' ? 'bg-green-500' : (st === 'connecting' ? 'bg-yellow-500' : 'bg-red-500');
+                return `<div class="card !p-3 flex items-center justify-between gap-2">
+                    <div class="flex items-center gap-2 min-w-0"><span class="w-2 h-2 rounded-full shrink-0 ${dot}"></span><p class="text-xs text-slate-200 truncate">${esc(u)}</p></div>
+                    <div class="flex gap-1 shrink-0">
+                        <button onclick="editRelay(${i})" class="btn btn-slate !px-2 !py-1 text-xs" title="Editar"><i data-lucide="pencil" class="w-3 h-3"></i></button>
+                        <button onclick="deleteRelay(${i})" class="btn btn-red !px-2 !py-1 text-xs" title="Apagar"><i data-lucide="trash-2" class="w-3 h-3"></i></button>
+                    </div>
+                </div>`;
+            }).join('');
+            lucide.createIcons();
+        }
+
+        // ===== UI =====
+        function switchTab(tabId) {
+            document.querySelectorAll('.tab-content').forEach(el => el.classList.remove('active'));
+            document.querySelectorAll('button[id^="tab-btn-"]').forEach(el => {
+                el.classList.remove('border-blue-500', 'text-blue-400');
+                el.classList.add('border-transparent', 'text-slate-400');
+            });
+            document.getElementById(`tab-${tabId}`).classList.add('active');
+            document.getElementById(`tab-btn-${tabId}`).classList.add('border-blue-500', 'text-blue-400');
+            if (tabId === 'mine' && !challenge && mode !== 'pow') newChallenge();
+        }
+
+        function copyText(text) {
+            if (!text) return;
+            const done = () => showToast('Copiado!');
+            if (navigator.clipboard && window.isSecureContext) {
+                navigator.clipboard.writeText(text).then(done).catch(() => fallbackCopy(text, done));
+            } else fallbackCopy(text, done);
+        }
+        function fallbackCopy(text, done) {
+            const t = document.createElement('input');
+            t.value = text; document.body.appendChild(t); t.select();
+            document.execCommand('copy'); document.body.removeChild(t); done();
+        }
+
+        let toastTimer;
+        function showToast(msg, error = false) {
+            const t = document.getElementById('toast');
+            t.textContent = msg;
+            t.className = `fixed top-4 left-1/2 transform -translate-x-1/2 text-white text-xs px-3 py-1 rounded-full shadow-lg transition-opacity duration-300 z-50 pointer-events-none ${error ? 'bg-red-600' : 'bg-blue-600'}`;
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => t.classList.add('opacity-0'), 2500);
+        }
+
+        window.onload = init;
+    </script>
+</body>
+</html>
